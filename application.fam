@@ -1,0 +1,24 @@
+App(
+    appid="flipper_rf_lab",
+
+    name="Flipper RF Lab",
+
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="flipper_rf_lab_main",
+
+    cdefines=["APP_FLIPPER_RF_LAB"],
+
+    requires=[
+        "gui",
+        "storage",
+        "notification",
+        "furi",
+        "furi_hal",
+    ],
+    stack_size=4 * 1024,
+    order=10,
+    fap_icon="assets/flipper_rf_lab_10px.png",
+
+    fap_category="RF",
+    fap_icon_assets="assets",
+)
