@@ -4,6 +4,11 @@
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/Tests-30%2F30%20Passing-brightgreen)](tests/test_algorithms.py)
 
+<div align="center">
+  <img src="https://visitor-badge.laobi.icu/badge?page_id=tworjaga.flipper-rf-lab&"  />
+</div>
+
+
 > **Professional RF Analysis & Research Platform for Flipper Zero**
 > 
 > Transform your Flipper Zero into a laboratory-grade RF forensics instrument with 15 advanced analysis features.
@@ -156,3 +161,4 @@ MIT License - see [LICENSE](LICENSE) file.
 For bug reports and feature requests, please use [GitHub Issues](https://github.com/tworjaga/flipper-rf-lab/issues).
 
 ---
+
