@@ -1,4 +1,4 @@
-# 🔬 Flipper RF Lab
+# Flipper RF Lab
 
 [![Flipper Zero](https://img.shields.io/badge/Flipper-Zero-orange)](https://flipperzero.one)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -10,27 +10,27 @@
 
 ![Flipper RF Lab](docs/images/flipper-rf-lab-banner.png)
 
-## ✨ Features
+## Features
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| 🔍 **RF Fingerprinting** | Device-level identification via timing drift, rise/fall slopes, clock instability | ✅ |
-| 📊 **Adaptive Signal Modeling** | Automatic protocol detection and hypothesis generation | ✅ |
-| 🔄 **Cross-Session Correlation** | Compare signals across capture sessions | ✅ |
-| 📈 **Behavioral Profiling** | Long-term device behavior analysis | ✅ |
-| ⏱️ **Timing Stability Analysis** | Laboratory-grade oscillator characterization | ✅ |
-| 🎯 **Advanced Clustering** | K-means and hierarchical signal grouping | ✅ |
-| ⚠️ **Threat Modeling** | Vulnerability scoring and risk assessment | ✅ |
-| 📡 **Real-Time Activity Map** | Continuous 300-928 MHz spectrum monitoring | ✅ |
-| 🎮 **Signal Replay Integrity** | Verify fidelity of signal regeneration | ✅ |
-| 🔬 **Modular Research Mode** | Deep analytical tools for protocol reverse engineering | ✅ |
-| 📊 **Internal Telemetry** | OS-level performance monitoring | ✅ |
-| 🎯 **Deterministic Execution** | <1μs timing jitter for scientific validity | ✅ |
-| 🗜️ **Signal Compression** | 5:1+ compression for long-term logging | ✅ |
-| 💾 **Long-Term Logging** | Unattended background monitoring | ✅ |
-| 🧮 **Embedded Math Toolkit** | Q15.16 fixed-point operations | ✅ |
+| **RF Fingerprinting** | Device-level identification via timing drift, rise/fall slopes, clock instability | ✅ |
+| **Adaptive Signal Modeling** | Automatic protocol detection and hypothesis generation | ✅ |
+| **Cross-Session Correlation** | Compare signals across capture sessions | ✅ |
+| **Behavioral Profiling** | Long-term device behavior analysis | ✅ |
+| **Timing Stability Analysis** | Laboratory-grade oscillator characterization | ✅ |
+| **Advanced Clustering** | K-means and hierarchical signal grouping | ✅ |
+| **Threat Modeling** | Vulnerability scoring and risk assessment | ✅ |
+| **Real-Time Activity Map** | Continuous 300-928 MHz spectrum monitoring | ✅ |
+| **Signal Replay Integrity** | Verify fidelity of signal regeneration | ✅ |
+| **Modular Research Mode** | Deep analytical tools for protocol reverse engineering | ✅ |
+| **Internal Telemetry** | OS-level performance monitoring | ✅ |
+| **Deterministic Execution** | <1μs timing jitter for scientific validity | ✅ |
+| **Signal Compression** | 5:1+ compression for long-term logging | ✅ |
+| **Long-Term Logging** | Unattended background monitoring | ✅ |
+| **Embedded Math Toolkit** | Q15.16 fixed-point operations | ✅ |
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 - [Flipper Zero](https://flipperzero.one/) device
@@ -56,7 +56,7 @@ git clone https://github.com/tworjaga/flipper-rf-lab.git applications_user/flipp
 ### Alternative: Direct Download
 Download the latest `.fap` file from [Releases](https://github.com/tworjaga/flipper-rf-lab/releases) and copy to your Flipper's SD card.
 
-## 📖 Usage
+## Usage
 
 ### Main Menu
 - **Capture Mode**: Real-time RF signal capture with analysis
@@ -77,7 +77,7 @@ Download the latest `.fap` file from [Releases](https://github.com/tworjaga/flip
 - Pulse histogram analysis
 - Frame alignment tools
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 flipper-rf-lab/
@@ -105,7 +105,7 @@ flipper-rf-lab/
     └── telemetry.c          # Performance monitoring
 ```
 
-## 🔧 Technical Specifications
+## Technical Specifications
 
 | Parameter | Value |
 |-----------|-------|
@@ -118,7 +118,7 @@ flipper-rf-lab/
 | **Compression** | 16.7:1 ratio (RLE) |
 | **Battery Life** | 8+ hours logging, 48+ hours standby |
 
-## 🧪 Testing
+## Testing
 
 All core algorithms are verified with Python simulations:
 
@@ -135,28 +135,24 @@ python test_algorithms.py
 - Threat modeling (Shannon entropy)
 - Protocol inference (OOK, FSK, ASK detection)
 
-## 🤝 Contributing
+## Contributing
 
 Contributions welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-## 📝 License
+## License
 
 MIT License - see [LICENSE](LICENSE) file.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - [Flipper Devices](https://flipperdevices.com/) for the amazing Flipper Zero
 - [Flipper Zero Firmware](https://github.com/flipperdevices/flipperzero-firmware) team
 - TI CC1101 datasheet and application notes
 
-## 📧 Contact
+## Contact
 
 **Author**: [@tworjaga](https://github.com/tworjaga)
 
 For bug reports and feature requests, please use [GitHub Issues](https://github.com/tworjaga/flipper-rf-lab/issues).
 
 ---
-
-<p align="center">
-  <b>Made with ❤️ for the RF research community</b>
-</p>
