@@ -2,7 +2,7 @@
 
 Thank you for your interest in contributing to Flipper RF Lab! This document provides guidelines and instructions for contributing.
 
-## 🎯 Ways to Contribute
+## Ways to Contribute
 
 - **Bug Reports**: Report issues via [GitHub Issues](https://github.com/tworjaga/flipper-rf-lab/issues)
 - **Feature Requests**: Suggest new features or improvements
@@ -10,7 +10,7 @@ Thank you for your interest in contributing to Flipper RF Lab! This document pro
 - **Documentation**: Improve README, code comments, or add tutorials
 - **Testing**: Help test on different Flipper Zero firmware versions
 
-## 🚀 Development Setup
+## Development Setup
 
 ### Prerequisites
 
@@ -56,7 +56,7 @@ cd flipperzero-firmware
 ./fbt fap_flipper_rf_lab flash
 ```
 
-## 📝 Code Guidelines
+## Code Guidelines
 
 ### C Code Standards
 
@@ -111,7 +111,7 @@ cd tests
 python test_algorithms.py
 ```
 
-## 🔧 Pull Request Process
+## Pull Request Process
 
 1. **Fork** the repository
 2. **Create a branch**: `git checkout -b feature/my-feature`
@@ -128,7 +128,7 @@ python test_algorithms.py
 6. **Push**: `git push origin feature/my-feature`
 7. **Submit PR**: Fill out the PR template completely
 
-## 🐛 Bug Reports
+## Bug Reports
 
 Include:
 - Flipper Zero firmware version
@@ -137,7 +137,7 @@ Include:
 - Serial logs (if applicable)
 - Hardware configuration (external modules, etc.)
 
-## 📋 Checklist for PRs
+## Checklist for PRs
 
 - [ ] Code follows style guidelines
 - [ ] All tests pass (30/30)
@@ -147,22 +147,23 @@ Include:
 - [ ] ISR timing verified (<10μs)
 - [ ] Tested on actual Flipper Zero hardware
 
-## 🏆 Recognition
+## Recognition
 
 Contributors will be:
 - Listed in README.md
 - Mentioned in release notes
 - Added to CONTRIBUTORS file
 
-## 💬 Questions?
+## Questions?
 
 - Open a [GitHub Discussion](https://github.com/tworjaga/flipper-rf-lab/discussions)
 - Join the [Flipper Zero Discord](https://discord.gg/flipper)
 
-## 📜 License
+## License
 
 By contributing, you agree that your contributions will be licensed under the MIT License.
 
 ---
 
 **Thank you for helping make Flipper RF Lab better!** 🎉
+
