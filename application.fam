@@ -15,7 +15,7 @@ App(
         "furi",
         "furi_hal",
     ],
-    stack_size=4 * 1024,
+    stack_size=4 * 1024,   # main thread only — workers have their own stacks (FIX 12)
     order=10,
     fap_icon="assets/flipper_rf_lab_10px.png",
 
