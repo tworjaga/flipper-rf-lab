@@ -3,6 +3,7 @@
 [![Flipper Zero](https://img.shields.io/badge/Flipper-Zero-orange)](https://flipperzero.one)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/Tests-30%2F30%20Passing-brightgreen)](tests/test_algorithms.py)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/tworjaga/flipper-rf-lab)
 <img src="https://visitor-badge.laobi.icu/badge?page_id=tworjaga.flipper-rf-lab&"  />
 
 
