@@ -64,7 +64,7 @@ void circular_buffer_clear(CircularBuffer_t* cb) {
 // MEMORY POOL — bump allocator, init-time allocations only
 // ============================================================================
 
-#define MEMORY_POOL_SIZE (16 * 1024)
+#define MEMORY_POOL_SIZE (2 * 1024)
 
 static uint8_t  pool_arena[MEMORY_POOL_SIZE] __attribute__((aligned(8)));
 static uint32_t pool_offset      = 0;
