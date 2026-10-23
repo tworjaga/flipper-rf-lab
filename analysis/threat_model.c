@@ -300,7 +300,11 @@ uint8_t threat_model_calculate_crc8(const uint8_t* data, uint8_t len,
 
 // Detect rolling code
 void threat_model_detect_rolling_code(void) {
-    if(analysis_context.frame_count < ENTROPY_HISTORY_SIZE) return;
+    // FIX: require a modest sample, not the full buffer. Keying this to
+    // ENTROPY_HISTORY_SIZE (== MAX_FRAME_SAMPLES) meant detection only ever ran
+    // when the capture buffer was completely full.
+    #define ROLLING_CODE_MIN_FRAMES 16
+    if(analysis_context.frame_count < ROLLING_CODE_MIN_FRAMES) return;
     
     // Look for fields that change in every frame but aren't random
     // This is a simplified check - full implementation would be more sophisticated
@@ -432,8 +436,18 @@ void threat_model_assess_vulnerabilities(void) {
     analysis_context.assessment.has_rolling_code = analysis_context.rolling_code_detected;
     analysis_context.assessment.is_static = (analysis_context.static_ratio > 80);
     analysis_context.assessment.static_ratio = analysis_context.static_ratio;
-    
-    // Generate description
+
+    // FIX: fill the short, embedded assessment.description (64 chars). It is the
+    // field callers and sd_manager_export_report() read; previously only the
+    // separate detailed_report buffer was populated, leaving this one empty.
+    snprintf(analysis_context.assessment.description,
+             sizeof(analysis_context.assessment.description),
+             "%s risk, score %u/1000%s",
+             threat_model_get_risk_string(analysis_context.assessment.level),
+             (unsigned)analysis_context.assessment.vulnerability_score,
+             analysis_context.exact_replay_detected ? ", replayable" : "");
+
+    // Generate the full human-readable report
     threat_model_generate_report();
     
     analysis_context.state = THREAT_STATE_COMPLETE;
@@ -506,7 +520,7 @@ void threat_model_generate_report(void) {
         "  %s\n",
         threat_model_get_risk_string(analysis_context.assessment.level),
         analysis_context.assessment.vulnerability_score,
-        analysis_context.entropy_per_byte,
+        (double)analysis_context.entropy_per_byte,
         analysis_context.assessment.entropy_bits,
         analysis_context.static_ratio,
         analysis_context.preamble_length,
