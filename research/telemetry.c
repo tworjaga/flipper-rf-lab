@@ -1,6 +1,8 @@
 #include "telemetry.h"
 #include "../storage/sd_manager.h"
+#include "../core/hal/timer_precision.h"
 #include <string.h>
+#include <stdio.h>
 
 #define TAG "TELEMETRY"
 
