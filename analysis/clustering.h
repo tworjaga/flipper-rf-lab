@@ -2,6 +2,7 @@
 #define CLUSTERING_H
 
 #include "../core/flipper_rf_lab.h"
+#include "../core/math/fixed_point.h"   // fixed_t
 
 #ifdef __cplusplus
 extern "C" {
@@ -129,7 +130,7 @@ fixed_t clustering_davies_bouldin(const Dataset_t* data,
                                    const KMeansResult_t* clusters);
 
 // Optimal k selection
-uint8_t clustering_find_optimal_k(const Dataset_t* data, uint8_t k_min, uint8_t k_max);
+uint8_t clustering_find_optimal_k(Dataset_t* data, uint8_t k_min, uint8_t k_max);
 
 // Distance calculations
 fixed_t clustering_distance_euclidean(const DataPoint_t* a, const DataPoint_t* b);
