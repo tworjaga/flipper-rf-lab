@@ -13,8 +13,8 @@ extern "C" {
 // ============================================================================
 
 #define MAX_PAYLOAD_SIZE        64
-#define MAX_FRAME_SAMPLES       256
-#define ENTROPY_HISTORY_SIZE    100
+#define MAX_FRAME_SAMPLES       64
+#define ENTROPY_HISTORY_SIZE    64
 #define CRC_POLYNOMIALS_COUNT   10
 
 // Vulnerability scoring thresholds
@@ -45,7 +45,9 @@ typedef struct {
     uint16_t frame_count;
     
     // Entropy analysis
-    uint8_t byte_frequencies[256];
+    // FIX: counts must be 32-bit — a uint8_t count wraps at 255 and corrupts
+    // the Shannon-entropy calculation for any non-trivial capture.
+    uint32_t byte_frequencies[256];
     uint32_t total_bytes;
     float entropy_per_byte;
     uint8_t entropy_histogram[ENTROPY_HISTORY_SIZE];
@@ -89,12 +91,12 @@ typedef struct {
 
 typedef struct {
     const char* name;
-    uint16_t polynomial;
+    uint32_t polynomial;  // widened to hold 32-bit polynomials (e.g. CRC-32)
     uint8_t width;        // 8, 16, or 32
-    uint8_t initial;
+    uint32_t initial;     // widened: CRC-32 init is 0xFFFFFFFF
     bool reflect_in;
     bool reflect_out;
-    uint16_t xor_out;
+    uint32_t xor_out;     // widened to match 32-bit CRCs
 } CRCPolynomial_t;
 
 // ============================================================================
