@@ -94,7 +94,8 @@ extern "C" {
 #define CC1101_RCCTRL1_STATUS 0x3C
 #define CC1101_RCCTRL0_STATUS 0x3D
 
-// FIFO addresses
+// PA table (power) and FIFO addresses
+#define CC1101_PATABLE      0x3E
 #define CC1101_TXFIFO       0x3F
 #define CC1101_RXFIFO       0x3F
 
