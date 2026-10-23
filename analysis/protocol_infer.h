@@ -14,19 +14,13 @@ extern "C" {
 
 #define MAX_PULSE_BINS          256
 #define MAX_SYMBOL_TYPES        8
-#define MAX_FRAME_SAMPLES       100
+// Frames retained for protocol-structure inference. (threat_model.h keeps its
+// own, separately-named, sample cap to avoid a macro clash across TUs.)
+#define MAX_INFER_FRAME_SAMPLES 32
 #define MAX_PREAMBLE_LEN        32
 
-// Modulation types
-typedef enum {
-    MOD_UNKNOWN = 0,
-    MOD_OOK,
-    MOD_ASK,
-    MOD_FSK,
-    MOD_GFSK,
-    MOD_MSK,
-    MOD_PSK
-} ModulationType_t;
+// ModulationType_t and EncodingType_t's MOD_* values are defined in
+// core/flipper_rf_lab.h (unified across the app). EncodingType_t follows.
 
 // Encoding types
 typedef enum {
@@ -121,7 +115,7 @@ typedef struct {
     uint8_t cluster_count;
     
     // Frame samples
-    Frame_t frames[MAX_FRAME_SAMPLES];
+    Frame_t frames[MAX_INFER_FRAME_SAMPLES];
     uint16_t frame_count;
     
     // Hypothesis
@@ -182,7 +176,8 @@ void protocol_infer_calculate_timing_stats(uint16_t* min, uint16_t* max,
                                             uint16_t* mean, uint16_t* std_dev);
 
 // Frame structure analysis
-uint16_t protocol_infer_detect_preamble_pattern(const Frame_t* frames, 
+uint16_t protocol_infer_detect_preamble_pattern(const Frame_t* frames,
+                                                 uint16_t frame_count,
                                                  uint16_t* length_bits);
 uint8_t protocol_infer_estimate_payload_length(void);
 void protocol_infer_detect_checksum_type(void);
