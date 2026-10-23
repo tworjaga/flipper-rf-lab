@@ -3,7 +3,8 @@
 
 // Log2 lookup table for 8-bit values (0-255)
 // log2(x) * 65536 for x in range [1, 256]
-static const uint16_t log2_lut[256] = {
+// NOTE: entries are Q16.16 (fixed_t), up to 262144 — must NOT be uint16_t.
+static const fixed_t log2_lut[256] = {
     0,      // log2(0) = -infinity (special case, set to 0)
     0,      // log2(1) = 0
     65536,  // log2(2) = 1
@@ -434,8 +435,9 @@ bool matrix_inverse_2x2(const FixedMatrix_t* m, FixedMatrix_t* result) {
 
 // 3x3 matrix inverse (simplified)
 bool matrix_inverse_3x3(const FixedMatrix_t* m, FixedMatrix_t* result) {
+    (void)result;  // Not fully implemented yet (see below)
     if(m->rows != 3 || m->cols != 3) return false;
-    
+
     fixed_t det = matrix_determinant_3x3(m);
     if(det == 0) return false;
     
