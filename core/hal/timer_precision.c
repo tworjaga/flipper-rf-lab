@@ -1,4 +1,7 @@
 #include "timer_precision.h"
+#include <furi.h>
+#include <stm32wbxx.h>   // SystemCoreClock, __NOP, __get_PRIMASK, __disable_irq
+#include <string.h>
 
 // Static state
 static volatile bool timer_initialized = false;
