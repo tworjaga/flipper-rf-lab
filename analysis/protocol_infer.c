@@ -1,6 +1,8 @@
 #include "protocol_infer.h"
 #include "../core/math/statistics.h"
 #include <string.h>
+#include <math.h>
+#include <stdio.h>
 
 #define TAG "PROTOCOL_INFER"
 
@@ -28,7 +30,7 @@ void protocol_infer_add_pulse(const Pulse_t* pulse) {
 
 // Add frame to analysis
 void protocol_infer_add_frame(const Frame_t* frame) {
-    if(infer_state.frame_count >= MAX_FRAME_SAMPLES) return;
+    if(infer_state.frame_count >= MAX_INFER_FRAME_SAMPLES) return;
     
     memcpy(&infer_state.frames[infer_state.frame_count], frame, sizeof(Frame_t));
     infer_state.frame_count++;
@@ -270,6 +272,8 @@ bool protocol_infer_check_ook(const Pulse_t* pulses, uint16_t count) {
 
 // Check FSK characteristics
 bool protocol_infer_check_fsk(const Pulse_t* pulses, uint16_t count) {
+    UNUSED(pulses);
+    UNUSED(count);
     // FSK would show consistent timing with frequency changes
     // We detect this through multiple timing clusters
     return (infer_state.cluster_count >= 2);
@@ -277,6 +281,8 @@ bool protocol_infer_check_fsk(const Pulse_t* pulses, uint16_t count) {
 
 // Check ASK characteristics
 bool protocol_infer_check_ask(const Pulse_t* pulses, uint16_t count) {
+    UNUSED(pulses);
+    UNUSED(count);
     // ASK has amplitude variations but consistent timing
     // Simplified check
     return (infer_state.cluster_count == 1);
@@ -329,9 +335,11 @@ EncodingType_t protocol_infer_detect_encoding_type(const Frame_t* frames,
 
 // Check Manchester encoding
 bool protocol_infer_check_manchester(const Frame_t* frames, uint16_t count) {
+    UNUSED(frames);
+    UNUSED(count);
     // Manchester has transitions in every bit cell
     // Check pulse patterns for consistent mid-bit transitions
-    
+
     if(infer_state.pulse_count < 20) return false;
     
     uint16_t transition_count = 0;
@@ -341,7 +349,13 @@ bool protocol_infer_check_manchester(const Frame_t* frames, uint16_t count) {
         }
     }
     
-    // Manchester should have ~50% transitions
+    // NOTE (known limitation): this measures transitions between *pulse-buffer
+    // entries*, which alternate mark/space by construction, so the rate is ~1.0
+    // for any signal. A correct Manchester test needs bit-level demodulation
+    // (even-spaced bit cells with a guaranteed mid-cell transition), which this
+    // pulse-level front end does not yet produce. Kept conservative: only report
+    // Manchester when the rate lands in the ideal window, so it never false-
+    // positives over NRZ/PWM.
     float transition_rate = (float)transition_count / (infer_state.pulse_count - 1);
     return (transition_rate > 0.4f && transition_rate < 0.6f);
 }
@@ -357,9 +371,11 @@ bool protocol_infer_check_miller(const Frame_t* frames, uint16_t count) {
 
 // Check PWM encoding
 bool protocol_infer_check_pwm(const Frame_t* frames, uint16_t count) {
+    UNUSED(frames);
+    UNUSED(count);
     // PWM uses pulse width to encode data
     // Check for two distinct pulse widths
-    
+
     if(infer_state.cluster_count < 2) return false;
     
     // Check if clusters have consistent 2:1 or 1:2 ratio
@@ -458,26 +474,27 @@ void protocol_infer_detect_preamble(void) {
 }
 
 // Detect preamble from frames
-uint16_t protocol_infer_detect_preamble_pattern(const Frame_t* frames, 
+uint16_t protocol_infer_detect_preamble_pattern(const Frame_t* frames,
+                                                 uint16_t frame_count,
                                                  uint16_t* length_bits) {
-    if(infer_state.frame_count < 2) {
+    if(frame_count < 2) {
         *length_bits = 0;
         return 0;
     }
-    
+
     // Look for common prefix bits
     uint8_t min_len = frames[0].length;
-    for(uint16_t i = 1; i < infer_state.frame_count; i++) {
+    for(uint16_t i = 1; i < frame_count; i++) {
         if(frames[i].length < min_len) min_len = frames[i].length;
     }
-    
+
     // Check bits from start
     uint8_t preamble_bytes = 0;
     for(uint8_t byte = 0; byte < min_len; byte++) {
         bool all_same = true;
         uint8_t first_val = frames[0].data[byte];
-        
-        for(uint16_t i = 1; i < infer_state.frame_count; i++) {
+
+        for(uint16_t i = 1; i < frame_count; i++) {
             if(frames[i].data[byte] != first_val) {
                 all_same = false;
                 break;
