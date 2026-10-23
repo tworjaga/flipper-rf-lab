@@ -12,7 +12,7 @@ extern "C" {
 // OS-level monitoring for reliability and optimization
 // ============================================================================
 
-#define TELEMETRY_BUFFER_SIZE       256
+#define TELEMETRY_BUFFER_SIZE       48
 #define TELEMETRY_EVENT_NAME_LEN    16
 #define TELEMETRY_MAX_COUNTERS      16
 
