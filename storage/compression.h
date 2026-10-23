@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+// Brings in Pulse_t, Frame_t, FURI_LOG_*, UNUSED and furi types used below.
+#include "../core/flipper_rf_lab.h"
 
 #ifdef __cplusplus
 extern "C" {
