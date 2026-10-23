@@ -57,12 +57,14 @@ FuriStatus sd_manager_init(void) {
     if(!sd_manager_is_card_present()) {
         FURI_LOG_W(TAG, "SD card not present");
         furi_record_close(RECORD_STORAGE);
+        storage = NULL;   // FIX: don't leave a dangling handle to a closed record
         return FuriStatusError;
     }
 
     if(!sd_manager_ensure_directories()) {
         FURI_LOG_E(TAG, "Failed to create directory structure");
         furi_record_close(RECORD_STORAGE);
+        storage = NULL;   // FIX: same — avoid use-after-close
         return FuriStatusError;
     }
 
@@ -91,7 +93,7 @@ void sd_manager_deinit(void) {
 
 bool sd_manager_is_card_present(void) {
     if(!storage) return false;
-    return storage_sd_status(storage) == FSDStatusOK;
+    return storage_sd_status(storage) == FSE_OK;
 }
 
 bool sd_manager_ensure_directories(void) {
@@ -128,12 +130,10 @@ FileHandle_t* sd_manager_open_file(const char* path, FileType_t type, bool write
     strncpy(handle->path, path, MAX_PATH_LEN - 1);
     handle->path[MAX_PATH_LEN - 1] = '\0';
 
-    FS_AccessMode access    = write ? FS_ACCESS_MODE_WRITE  : FS_ACCESS_MODE_READ;
+    FS_AccessMode access    = write ? FSAM_WRITE : FSAM_READ;
     // FIX (major): write mode now uses CREATE_ALWAYS only for true overwrites.
     //   Append callers must use sd_manager_open_file_append().
-    FS_OpenMode   open_mode = write
-        ? (FS_OPEN_MODE_WRITE | FS_OPEN_MODE_CREATE_ALWAYS)
-        : FS_OPEN_MODE_READ;
+    FS_OpenMode   open_mode = write ? FSOM_CREATE_ALWAYS : FSOM_OPEN_EXISTING;
 
     if(!storage_file_open(handle->file, path, access, open_mode)) {
         FURI_LOG_E(TAG, "Failed to open file: %s", path);
@@ -165,15 +165,14 @@ FileHandle_t* sd_manager_open_file_append(const char* path, FileType_t type) {
     strncpy(handle->path, path, MAX_PATH_LEN - 1);
     handle->path[MAX_PATH_LEN - 1] = '\0';
 
-    if(!storage_file_open(handle->file, path,
-                          FS_ACCESS_MODE_WRITE,
-                          FS_OPEN_MODE_WRITE | FS_OPEN_MODE_CREATE_NEW_IF_NOT_EXISTS)) {
+    // FSOM_OPEN_APPEND opens-or-creates and positions the file at the end, so
+    // writes accumulate. No manual seek required (and the previous seek call
+    // used the wrong "from current position" semantics).
+    if(!storage_file_open(handle->file, path, FSAM_WRITE, FSOM_OPEN_APPEND)) {
         storage_file_free(handle->file);
         _pool_release(handle);
         return NULL;
     }
-    // Seek to end so new data appends
-    storage_file_seek(handle->file, 0, false); // false = from end
     handle->is_open = true;
     return handle;
 }
@@ -235,7 +234,13 @@ uint16_t sd_manager_create_session(const char* name) {
         return 0;
     }
 
-    uint16_t session_id = session_index.count + 1;
+    // FIX: derive the next id from the highest existing id, not count+1 — after
+    // a delete, count+1 could collide with a session that still exists.
+    uint16_t session_id = 1;
+    for(uint16_t i = 0; i < session_index.count; i++) {
+        if(session_index.sessions[i].session_id >= session_id)
+            session_id = session_index.sessions[i].session_id + 1;
+    }
     SessionInfo_t* info = &session_index.sessions[session_index.count];
 
     // Initialise magic/version on first create — not in SessionInfo_t,
@@ -421,6 +426,41 @@ bool sd_manager_export_session(uint16_t session_id, ExportFormat_t format, const
     return true;
 }
 
+bool sd_manager_export_report(const ThreatAssessment_t* assessment, const char* filename) {
+    if(!assessment) return false;
+
+    char path[MAX_PATH_LEN];
+    snprintf(path, sizeof(path), "%s/%s", EXPORTS_PATH, filename);
+
+    FileHandle_t* file = sd_manager_open_file(path, FILE_TYPE_EXPORT, true);
+    if(!file) return false;
+
+    char buf[256];
+    snprintf(buf, sizeof(buf),
+        "RF THREAT ASSESSMENT\n"
+        "risk_level=%d\n"
+        "vulnerability_score=%u\n"
+        "entropy_bits=%u\n"
+        "has_checksum=%s\n"
+        "has_rolling_code=%s\n"
+        "is_static=%s\n"
+        "static_ratio=%u\n"
+        "%s\n",
+        (int)assessment->level,
+        (unsigned)assessment->vulnerability_score,
+        (unsigned)assessment->entropy_bits,
+        assessment->has_checksum ? "yes" : "no",
+        assessment->has_rolling_code ? "yes" : "no",
+        assessment->is_static ? "yes" : "no",
+        (unsigned)assessment->static_ratio,
+        assessment->description);
+
+    sd_manager_write_string(file, buf);
+    sd_manager_close_file(file);
+    FURI_LOG_I(TAG, "Exported threat report: %s", filename);
+    return true;
+}
+
 bool sd_manager_export_fingerprint(const RFFingerprint_t* fingerprint, const char* device_name) {
     char path[MAX_PATH_LEN];
     snprintf(path, sizeof(path), "%s/%s.fp", FINGERPRINTS_PATH, device_name);
@@ -565,14 +605,14 @@ bool sd_manager_log_system_status(const SystemTelemetry_t* telemetry) {
 uint64_t sd_manager_get_free_space(void) {
     if(!storage) return 0;
     uint64_t free_space, total_space;
-    storage_get_stats(storage, &free_space, &total_space);
+    storage_common_fs_info(storage, SD_BASE_PATH, &total_space, &free_space);
     return free_space;
 }
 
 uint64_t sd_manager_get_total_space(void) {
     if(!storage) return 0;
     uint64_t free_space, total_space;
-    storage_get_stats(storage, &free_space, &total_space);
+    storage_common_fs_info(storage, SD_BASE_PATH, &total_space, &free_space);
     return total_space;
 }
 
@@ -596,8 +636,7 @@ bool sd_manager_init_rolling_log(uint32_t max_size_mb) {
 
     rolling_log_file = storage_file_alloc(storage);
     if(!storage_file_open(rolling_log_file, path,
-                          FS_ACCESS_MODE_WRITE,
-                          FS_OPEN_MODE_WRITE | FS_OPEN_MODE_CREATE_ALWAYS)) {
+                          FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
         storage_file_free(rolling_log_file);
         rolling_log_file = NULL;
         return false;
@@ -619,8 +658,7 @@ bool sd_manager_write_rolling_log(const uint8_t* data, uint32_t len) {
         char path[MAX_PATH_LEN];
         snprintf(path, sizeof(path), "%s/rolling.bin", LOGS_PATH);
         if(!storage_file_open(rolling_log_file, path,
-                              FS_ACCESS_MODE_WRITE,
-                              FS_OPEN_MODE_WRITE | FS_OPEN_MODE_CREATE_ALWAYS)) {
+                              FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
             storage_file_free(rolling_log_file);
             rolling_log_file = NULL;
             return false;
@@ -651,12 +689,12 @@ bool sd_manager_enum_files(const char* directory, FileEnumCallback callback, voi
     }
 
     char name[MAX_FILENAME_LEN];
-    while(storage_dir_read(dir, name, MAX_FILENAME_LEN)) {
+    FileInfo info;
+    // Current SDK signature: storage_dir_read(file, FileInfo*, name, name_len)
+    while(storage_dir_read(dir, &info, name, MAX_FILENAME_LEN)) {
         char path[MAX_PATH_LEN];
         snprintf(path, sizeof(path), "%s/%s", directory, name);
-        FileInfo info;
-        if(storage_common_stat(storage, path, &info) == FSE_OK)
-            callback(path, info.size, context);
+        callback(path, (uint32_t)info.size, context);
     }
 
     storage_dir_close(dir);
