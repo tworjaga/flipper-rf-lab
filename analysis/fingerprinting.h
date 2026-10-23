@@ -12,7 +12,7 @@ extern "C" {
 // Device-level identification via RF imperfections
 // ============================================================================
 
-#define FINGERPRINT_SAMPLE_COUNT    1000    // Frames for drift analysis
+#define FINGERPRINT_SAMPLE_COUNT    256     // Frames for drift analysis (RAM-bounded)
 #define RSSI_SAMPLE_RATE_HZ         100000  // 100kHz RSSI sampling
 #define SLOPE_WINDOW_US             10      // Window for rise/fall measurement
 #define MAX_SLOPE_SAMPLES           256     // Buffer for slope analysis
@@ -107,6 +107,9 @@ uint16_t fingerprinting_get_database_count(void);
 // Learning mode
 void fingerprinting_start_learning(const char* device_name);
 void fingerprinting_stop_learning(void);
+
+// Persistence
+void fingerprinting_save_database(void);
 
 // Utility functions
 void fingerprinting_reset_capture_state(void);
