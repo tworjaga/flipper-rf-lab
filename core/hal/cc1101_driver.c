@@ -7,8 +7,12 @@
 
 #define CC1101_SPI_HANDLE   &furi_hal_spi_bus_handle_external
 #define CC1101_CS_PIN       &gpio_ext_pa4
-#define CC1101_GDO0_PIN     &gpio_ext_pa6
-#define CC1101_GDO2_PIN     &gpio_ext_pa7
+// FIX (critical): GDO0/GDO2 were on PA6/PA7 — the external SPI's MISO/MOSI
+//   lines — so the data-ready interrupt fired on every SPI byte. Moved to the
+//   free external header pins PC3 (pin 7) and PC1 (pin 15). Wire the module's
+//   GDO0->PC3 and GDO2->PC1 accordingly.
+#define CC1101_GDO0_PIN     &gpio_ext_pc3
+#define CC1101_GDO2_PIN     &gpio_ext_pc1
 
 #define CC1101_SPI_TIMEOUT       1000
 #define CC1101_RESET_DELAY_US    100
@@ -93,9 +97,17 @@ static void _write_reg_nolock(uint8_t reg, uint8_t value) {
     furi_delay_us(1);
 }
 
-// Read a single register without acquiring lock.
+// Read a register without acquiring lock.
+// FIX (critical): CC1101 status registers (0x30..0x3D — PARTNUM, VERSION,
+//   FREQEST, LQI, RSSI, MARCSTATE, WORTIME, PKTSTATUS, VCO_VC_DAC, TXBYTES,
+//   RXBYTES, RCCTRL*) MUST be read with the burst bit set (0xC0). Reading them
+//   with the single-access bit (0x80) makes the chip decode the address as a
+//   command strobe — e.g. a "read MARCSTATE" would actually fire STX and key
+//   the transmitter. Config registers (0x00..0x2E) still use single access.
 static uint8_t _read_reg_nolock(uint8_t reg) {
-    uint8_t addr  = (reg & 0x3F) | CC1101_READ_SINGLE;
+    uint8_t access = (reg >= 0x30 && reg <= 0x3D) ? CC1101_READ_BURST
+                                                  : CC1101_READ_SINGLE;
+    uint8_t addr  = (reg & 0x3F) | access;
     uint8_t value = 0;
     furi_hal_gpio_write(CC1101_CS_PIN, false);
     furi_delay_us(1);
