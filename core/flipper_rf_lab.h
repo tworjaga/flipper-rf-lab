@@ -29,13 +29,17 @@ extern "C" {
 // BUFFER SIZES - STATIC ALLOCATION ONLY
 // ============================================================================
 
-#define PULSE_BUFFER_SIZE       8192            // 8KB for pulse timing data
-#define FRAME_BUFFER_SIZE       16384           // 16KB for frame storage
-#define MAX_PULSE_COUNT         4096            // Maximum pulses per capture
-#define MAX_FRAME_COUNT         256             // Maximum frames in session
+// NOTE: these dimensions are sized for the STM32WB55's tight RAM budget. A FAP
+// is loaded entirely into heap, and free heap on-device is only ~100–140 KB, so
+// the static arrays below are deliberately modest. (Were 8192/16384/4096/256/128
+// — ~255 KB of .bss, which would not load.)
+#define PULSE_BUFFER_SIZE       4096            // pulse timing data
+#define FRAME_BUFFER_SIZE       2048            // raw frame scratch
+#define MAX_PULSE_COUNT         1024            // Maximum pulses per capture
+#define MAX_FRAME_COUNT         64              // Maximum frames in session
 #define MAX_CLUSTERS            5               // K-means clustering limit
 #define FINGERPRINT_VECTOR_SIZE 32              // Bytes per fingerprint
-#define MAX_DEVICE_DB_ENTRIES   128             // Device fingerprint database
+#define MAX_DEVICE_DB_ENTRIES   32              // Device fingerprint database
 #define HISTOGRAM_BINS          256             // Timing histogram resolution
 #define SESSION_NAME_LEN        32              // Session identifier length
 
@@ -70,6 +74,9 @@ typedef enum {
 // RF CONFIGURATION
 // ============================================================================
 
+// Unified modulation set. Covers both the CC1101 driver's physical modes
+// (2FSK/4FSK/GFSK/MSK/OOK/ASK) and the protocol-inference abstract modes
+// (FSK/PSK/UNKNOWN), so there is a single ModulationType_t across the app.
 typedef enum {
     MOD_2FSK = 0,
     MOD_4FSK,
@@ -77,6 +84,9 @@ typedef enum {
     MOD_MSK,
     MOD_OOK,
     MOD_ASK,
+    MOD_FSK,        // Generic FSK (inference)
+    MOD_PSK,        // Phase-shift keying (inference)
+    MOD_UNKNOWN,    // Undetermined (inference)
     MOD_COUNT
 } ModulationType_t;
 
@@ -170,14 +180,8 @@ typedef struct {
 // TIMING HISTOGRAM
 // ============================================================================
 
-typedef struct {
-    uint16_t bins[HISTOGRAM_BINS];  // Bin counts
-    uint16_t min_val;               // Minimum value in range
-    uint16_t max_val;               // Maximum value in range
-    uint32_t total_samples;         // Total samples added
-    uint16_t peak_bin;              // Bin with maximum count
-    uint16_t peak_count;            // Count at peak bin
-} TimingHistogram_t;
+// NOTE: the detailed timing histogram used by protocol inference lives in
+// analysis/protocol_infer.h (TimingHistogram_t). It is not duplicated here.
 
 // ============================================================================
 // CLUSTERING
@@ -323,26 +327,11 @@ void process_next_analysis_task(void);
 // Display functions
 void update_display(void);
 
-// ============================================================================
-// EXTERN DECLARATIONS
-// ============================================================================
-
-// These will be defined in other modules
-extern FuriStatus cc1101_driver_init(void);
-extern void cc1101_driver_deinit(void);
-extern FuriStatus gpio_manager_init(void);
-extern FuriStatus sd_manager_init(void);
-extern void sd_manager_deinit(void);
-extern void fixed_point_init(void);
-extern FuriStatus fingerprinting_engine_init(void);
-extern FuriStatus clustering_engine_init(void);
-extern FuriStatus threat_model_init(void);
-extern void main_menu_init(ViewDispatcher* view_dispatcher);
-
-// DWT cycle counter functions
-extern void timer_precision_init(void);
-extern uint32_t dwt_get_active_cycles(void);
-extern void dwt_reset_cycle_counter(void);
+// NOTE: per-module init/deinit and helper prototypes live in each module's own
+// header (cc1101_driver.h, gpio_manager.h, timer_precision.h, fixed_point.h,
+// sd_manager.h, fingerprinting.h, clustering.h, threat_model.h, main_menu.h).
+// They are intentionally NOT re-declared here — duplicate declarations trip
+// -Werror=redundant-decls, and main.c includes every module header it needs.
 
 #ifdef __cplusplus
 }
