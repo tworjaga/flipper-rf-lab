@@ -17,6 +17,8 @@
 #include <gui/view_dispatcher.h>
 #include <gui/scene_manager.h>
 #include <notification/notification_messages.h>
+#include <furi_hal_power.h>
+#include <string.h>
 
 #define TAG "FlipperRFLab"
 
@@ -47,6 +49,10 @@ static int32_t ui_update_worker(void* context);
 static int32_t analysis_worker(void* context);
 static void update_system_telemetry(void);
 static void enter_low_power_mode(void);
+static bool app_navigation_callback(void* context);
+
+// Count of captured frames awaiting a heavier analysis pass.
+static volatile uint32_t g_frames_pending = 0;
 
 // ============================================================================
 // INITIALIZATION
@@ -66,31 +72,43 @@ static bool flipper_rf_lab_init(void) {
     // Initialize circular buffers
     circular_buffer_init(&platform_context.rx_buffer, dma_buffer, SPI_DMA_BUFFER_SIZE);
     circular_buffer_init(&platform_context.pulse_circ_buffer, pulse_buffer, PULSE_BUFFER_SIZE);
-    
-    // Initialize hardware abstraction layer
-    if(cc1101_driver_init() != FuriStatusOk) {
-        FURI_LOG_E(TAG, "CC1101 driver initialization failed");
-        return false;
-    }
-    
+
+    // Static bump allocator (init-time objects only)
+    memory_pools_init();
+
+    // Initialize precision timing (DWT cycle counter) first — other init paths
+    // use timer_get_us()/delays.
+    timer_precision_init();
+
+    // FIX (critical): configure spare GPIO BEFORE bringing up the CC1101/SPI so
+    // the GPIO manager can never clobber the SPI/CS/GDO pins afterwards.
     if(gpio_manager_init() != FuriStatusOk) {
         FURI_LOG_E(TAG, "GPIO manager initialization failed");
         return false;
     }
-    
-    // Initialize precision timing (DWT cycle counter)
-    timer_precision_init();
-    
+
+    // Initialize hardware abstraction layer
+    if(cc1101_driver_init() != FuriStatusOk) {
+        FURI_LOG_E(TAG, "CC1101 driver initialization failed");
+        // Non-fatal: an external CC1101 module may not be attached. The UI and
+        // offline analysis still work; capture simply yields no data.
+        FURI_LOG_W(TAG, "Continuing without CC1101 (no module detected)");
+    }
+
     // Initialize fixed-point math library
     fixed_point_init();
-    
+
     // Initialize storage subsystem
     if(sd_manager_init() != FuriStatusOk) {
         FURI_LOG_E(TAG, "SD manager initialization failed");
         // Non-fatal - can still operate without SD
     }
-    
-    // Initialize analysis engines
+
+    // Initialize analysis / support engines
+    compression_init();
+    protocol_infer_init();
+    telemetry_init();
+
     if(fingerprinting_engine_init() != FuriStatusOk) {
         FURI_LOG_E(TAG, "Fingerprinting engine initialization failed");
         return false;
@@ -113,7 +131,13 @@ static bool flipper_rf_lab_init(void) {
     
     // Initialize main menu
     main_menu_init(view_dispatcher);
-    
+
+    // FIX (critical): give the user a way out. The Back button from the root
+    // menu runs this navigation callback; returning false tells the dispatcher
+    // to stop, which unblocks view_dispatcher_run() in main().
+    view_dispatcher_set_event_callback_context(view_dispatcher, &platform_context);
+    view_dispatcher_set_navigation_event_callback(view_dispatcher, app_navigation_callback);
+
     // Get notification service
     notifications = furi_record_open(RECORD_NOTIFICATION);
     
@@ -168,11 +192,12 @@ static int32_t rf_capture_worker(void* context) {
         if(ctx->low_power_mode) {
             passive_monitor_cycle();
         }
-        
-        // Yield to other tasks
-        furi_delay_us(100);
+
+        // Yield to the scheduler (FIX: furi_delay_us is a busy-wait that pinned
+        // the core at 100%; furi_delay_ms sleeps the thread).
+        furi_delay_ms(2);
     }
-    
+
     return 0;
 }
 
@@ -187,15 +212,15 @@ static int32_t ui_update_worker(void* context) {
     while(!g_shutdown_requested) {
         uint32_t now = furi_get_tick();
 
-        // Update display at 30fps (33ms interval)
+        // Update display at ~30fps (33ms interval)
         if(now - last_update >= 33) {
             update_display();
             last_update = now;
         }
 
-        furi_delay_us(1000);
+        furi_delay_ms(5);   // FIX: sleep instead of busy-wait
     }
-    
+
     return 0;
 }
 
@@ -206,15 +231,19 @@ static int32_t analysis_worker(void* context) {
     FURI_LOG_I(TAG, "Analysis worker started");
     
     while(!g_shutdown_requested) {
-        // Battery check moved here from main loop (FIX 4+6)
-        if(platform_context.telemetry.battery_mv < 3300) {
+        // FIX: enter low-power at most once (was re-firing every ~100us,
+        // spamming SPI writes, logs and notifications). battery_mv==0 means
+        // "not yet sampled", so don't act on it.
+        if(platform_context.telemetry.battery_mv > 0 &&
+           platform_context.telemetry.battery_mv < 3300 &&
+           !platform_context.low_power_mode) {
             enter_low_power_mode();
         }
 
         if(has_pending_analysis()) {
             process_next_analysis_task();
         }
-        
+
         // Update telemetry periodically
         static uint32_t last_telemetry = 0;
         uint32_t now = furi_get_tick();
@@ -222,10 +251,10 @@ static int32_t analysis_worker(void* context) {
             update_system_telemetry();
             last_telemetry = now;
         }
-        
-        furi_delay_us(100);
+
+        furi_delay_ms(5);   // FIX: sleep instead of busy-wait
     }
-    
+
     return 0;
 }
 
@@ -235,23 +264,27 @@ static int32_t analysis_worker(void* context) {
 
 static void update_system_telemetry(void) {
     FlipperRFLabContext* ctx = &platform_context;
-    
-    // Calculate CPU load using DWT cycle counter
+
+    // Approximate CPU-active cycles since the last window.
+    // FIX (critical): reset the *active*-cycle accumulator, NOT DWT_CYCCNT.
+    // Zeroing DWT_CYCCNT broke furi's own microsecond delays and HAL timeouts,
+    // which read the same free-running counter.
     uint32_t active_cycles = dwt_get_active_cycles();
-    uint32_t total_cycles = SYSTEM_CORE_CLOCK / 100;  // 10ms worth of cycles
-    
-    ctx->telemetry.cpu_load_percent = (active_cycles * 100) / total_cycles;
-    if(ctx->telemetry.cpu_load_percent > 100) {
-        ctx->telemetry.cpu_load_percent = 100;
+    uint32_t total_cycles = SYSTEM_CORE_CLOCK;  // ~1 s window
+    if(total_cycles > 0) {
+        uint32_t load = (uint32_t)(((uint64_t)active_cycles * 100) / total_cycles);
+        ctx->telemetry.cpu_load_percent = (load > 100) ? 100 : load;
     }
-    
-    // Reset cycle counter for next measurement
-    dwt_reset_cycle_counter();
-    
+    dwt_reset_active_cycle_counter();
+
     // Update buffer utilization
-    ctx->telemetry.buffer_utilization = 
+    ctx->telemetry.buffer_utilization =
         (circular_buffer_count(&ctx->rx_buffer) * 100) / SPI_DMA_BUFFER_SIZE;
-    
+
+    // Sample battery voltage (mV) so the low-power check has real data.
+    float vbat = furi_hal_power_get_battery_voltage(FuriHalPowerICFuelGauge);
+    ctx->telemetry.battery_mv = (uint16_t)(vbat * 1000.0f);
+
     // Update uptime
     ctx->telemetry.uptime_seconds = furi_get_tick() / 1000;
     
@@ -273,6 +306,86 @@ static void enter_low_power_mode(void) {
     
     // Notify user
     notification_message(notifications, &sequence_blink_blue_100);
+}
+
+// ============================================================================
+// CAPTURE / ANALYSIS / DISPLAY RUNTIME
+// (declared in flipper_rf_lab.h; previously unimplemented — the app could not
+//  link into firmware because these symbols were missing.)
+// ============================================================================
+
+// Pull one packet from the CC1101 RX FIFO (if any) into the current session
+// and feed the analysis engines. Safe no-op when no module/data is present.
+void capture_frame_burst(void) {
+    uint8_t data[64];
+    uint8_t len = 0, rssi = 0, lqi = 0;
+
+    if(!cc1101_receive_packet(data, &len, &rssi, &lqi) || len == 0) {
+        return;
+    }
+
+    Session_t* s = &platform_context.current_session;
+    Frame_t* f = &s->frames[s->current_idx];
+    memset(f, 0, sizeof(*f));
+
+    uint8_t copy_len = (len > sizeof(f->data)) ? sizeof(f->data) : len;
+    memcpy(f->data, data, copy_len);
+    f->length       = copy_len;
+    f->timestamp_us = timer_get_us();
+    f->rssi_dbm     = cc1101_rssi_to_dbm(rssi);
+    f->frequency_hz = platform_context.rf_config.frequency_hz;
+
+    s->current_idx = (s->current_idx + 1) % MAX_FRAME_COUNT;
+    if(s->count < MAX_FRAME_COUNT) s->count++;
+    platform_context.total_frames_processed++;
+
+    // Feed the online analysis engines (all bounded, non-blocking).
+    fingerprinting_process_frame(f);
+    protocol_infer_add_frame(f);
+    threat_model_add_frame(f);
+
+    __atomic_fetch_add(&g_frames_pending, 1, __ATOMIC_RELAXED);
+}
+
+// Advance the spectrum sweep by one dwell step across 300–928 MHz.
+void spectrum_sweep_step(void) {
+    static uint32_t freq_hz = 300000000UL;
+    cc1101_set_frequency(freq_hz);
+    (void)cc1101_read_rssi();   // sample occupancy at this step
+    freq_hz += 1000000UL;       // 1 MHz steps
+    if(freq_hz > 928000000UL) freq_hz = 300000000UL;
+}
+
+// Lightweight passive-monitor tick: fold in the latest ISR-serviced RSSI.
+void passive_monitor_cycle(void) {
+    uint8_t rssi = cc1101_get_rssi_sample();
+    fingerprinting_process_rssi_sample(rssi, timer_get_us());
+}
+
+bool has_pending_analysis(void) {
+    return __atomic_load_n(&g_frames_pending, __ATOMIC_RELAXED) > 0;
+}
+
+// Consume one pending frame's worth of deferred analysis. The per-frame online
+// work already ran in capture_frame_burst(); this is where a heavier periodic
+// pass can run without blocking capture.
+void process_next_analysis_task(void) {
+    if(__atomic_load_n(&g_frames_pending, __ATOMIC_RELAXED) == 0) return;
+    __atomic_fetch_sub(&g_frames_pending, 1, __ATOMIC_RELAXED);
+}
+
+// The submenu view redraws itself through the GUI; nothing to push here yet.
+// Kept as the single, defined hook the UI worker calls at ~30fps.
+void update_display(void) {
+}
+
+// Back from the root view. Returning false leaves the Back event unhandled,
+// which tells the view dispatcher to stop — unblocking view_dispatcher_run()
+// in main(). (Don't also call view_dispatcher_stop() here: returning false
+// already initiates the stop, and doing both double-signals it.)
+static bool app_navigation_callback(void* context) {
+    UNUSED(context);
+    return false;
 }
 
 // ============================================================================
@@ -314,7 +427,11 @@ int32_t flipper_rf_lab_main(void* p) {
 
     furi_thread_join(analysis_thread);
     furi_thread_free(analysis_thread);
-    
+
+    // FIX: tear down the menu (removes its view from the dispatcher and frees
+    // the submenu) before freeing the dispatcher itself.
+    main_menu_deinit();
+
     view_dispatcher_free(view_dispatcher);
     furi_record_close(RECORD_GUI);
     furi_record_close(RECORD_NOTIFICATION);
