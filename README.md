@@ -2,6 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform: Flipper Zero](https://img.shields.io/badge/Platform-Flipper%20Zero-orange.svg)](https://flipperzero.one)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/tworjaga/flipper-rf-lab)
 
 An RF capture and analysis application for the Flipper Zero, built around an
 external CC1101 transceiver. It records sub-GHz signals and runs on-device
@@ -11,7 +12,7 @@ threat scoring, with fixed-point math and static memory allocation throughout.
 This is research-oriented firmware. The analysis engines are implemented and
 unit-tested; the on-device UI is currently a skeleton (see Status).
 
-## Status
+![flipper-rf-lab diagram](https://tworjaga.github.io/assets/diagram3.png)
 
 | Component | State |
 |-----------|-------|
@@ -162,10 +163,6 @@ the C tests above to validate shipping code.
 ```bash
 python tests/test_algorithms.py
 ```
-
-## Contributing
-
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
