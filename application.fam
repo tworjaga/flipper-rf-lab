@@ -21,4 +21,15 @@ App(
 
     fap_category="RF",
     fap_icon_assets="assets",
+    # Explicit source list so the host-only unit runner (tests/) is NOT built
+    # into the firmware .fap — it has its own main() and mocks the SDK.
+    sources=[
+        "core/*.c",
+        "core/hal/*.c",
+        "core/math/*.c",
+        "analysis/*.c",
+        "storage/*.c",
+        "research/*.c",
+        "ui/*.c",
+    ],
 )
