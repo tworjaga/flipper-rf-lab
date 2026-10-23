@@ -283,7 +283,6 @@ fixed_t stats_skewness(const fixed_t* data, uint32_t n) {
         sum_cubed += fixed_mul(fixed_mul(diff, diff), diff);
     }
     
-    fixed_t n_fixed = INT_TO_FIXED(n);
     return fixed_div(sum_cubed / n, fixed_mul(fixed_mul(std_dev, std_dev), std_dev));
 }
 
@@ -302,7 +301,6 @@ fixed_t stats_kurtosis(const fixed_t* data, uint32_t n) {
         sum_fourth += fixed_mul(diff_sq, diff_sq);
     }
     
-    fixed_t n_fixed = INT_TO_FIXED(n);
     fixed_t variance_sq = fixed_mul(variance, variance);
     return fixed_div(sum_fourth / n, variance_sq);
 }
@@ -500,8 +498,7 @@ fixed_t stats_inverse_normal_cdf(fixed_t p) {
     
     // Approximation using rational function
     fixed_t q = p - FLOAT_TO_FIXED(0.5f);
-    fixed_t r = q * q;
-    
+
     // Simplified approximation
     return fixed_mul(q, FLOAT_TO_FIXED(2.0f));
 }
