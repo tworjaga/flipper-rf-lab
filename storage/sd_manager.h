@@ -19,8 +19,8 @@ extern "C" {
 #define MAX_FILENAME_LEN    64
 #define MAX_PATH_LEN        256
 
-// FIX (critical): 999 × ~70 bytes = ~68 KB BSS; reduced to a realistic limit.
-#define MAX_SESSIONS        64
+// FIX (critical): keep the session index small — it lives in .bss.
+#define MAX_SESSIONS        16
 #define MAX_FILE_HANDLES    4
 
 typedef enum {
@@ -54,7 +54,7 @@ typedef struct {
 typedef struct {
     uint16_t session_id;
     char     session_name[SESSION_NAME_LEN];
-    char     timestamp[20];     // "YYYY-MM-DD_HH-MM-SS"
+    char     timestamp[32];     // "YYYY-MM-DD_HH-MM-SS" (+slack for -Wformat-truncation)
     uint32_t start_tick;        // FIX: furi_get_tick() at session open (for duration calc)
     uint32_t num_frames;
     uint32_t duration_ms;
@@ -106,6 +106,7 @@ bool           sd_manager_delete_session(uint16_t session_id);
 bool sd_manager_export_session(uint16_t session_id, ExportFormat_t format, const char* filename);
 bool sd_manager_export_fingerprint(const RFFingerprint_t* fingerprint, const char* device_name);
 bool sd_manager_export_telemetry(const SystemTelemetry_t* telemetry, const char* filename);
+bool sd_manager_export_report(const ThreatAssessment_t* assessment, const char* filename);
 
 bool sd_manager_write_compressed(FileHandle_t* handle, const uint8_t* data, uint32_t len);
 bool sd_manager_read_compressed(FileHandle_t* handle, uint8_t* data, uint32_t max_len, uint32_t* out_len);
