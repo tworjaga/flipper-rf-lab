@@ -4,6 +4,19 @@
 
 #define TAG "CLUSTERING"
 
+// Integer square root (bit-by-bit). Shared by the distance metrics so they can
+// work in integer space and never overflow Q16.16 when squaring coordinates.
+static uint64_t isqrt_u64(uint64_t v) {
+    uint64_t root = 0, bit = 1ULL << 62;
+    while(bit > v) bit >>= 2;
+    while(bit) {
+        if(v >= root + bit) { v -= root + bit; root = (root >> 1) + bit; }
+        else root >>= 1;
+        bit >>= 2;
+    }
+    return root;
+}
+
 // Static state for streaming clustering
 static Dataset_t streaming_dataset;
 static KMeansResult_t streaming_result;
@@ -130,8 +143,9 @@ bool clustering_kmeans_assign_points(KMeansResult_t* result, Dataset_t* data) {
         data->points[i].cluster_id = best_cluster;
         result->centroids[best_cluster].point_count++;
         
-        // Accumulate squared distance for inertia
-        fixed_t sq_dist = fixed_mul(min_distance, min_distance);
+        // Accumulate squared distance for inertia (saturating — min_distance can
+        // be large now that distances are computed in integer space).
+        fixed_t sq_dist = fixed_mul_sat(min_distance, min_distance);
         result->centroids[best_cluster].inertia += sq_dist;
     }
     
@@ -184,12 +198,14 @@ bool clustering_kmeans_check_convergence(const KMeansResult_t* prev,
 
 // Calculate Euclidean distance between two points
 fixed_t clustering_distance_euclidean(const DataPoint_t* a, const DataPoint_t* b) {
-    fixed_t dx = a->x - b->x;
-    fixed_t dy = a->y - b->y;
-    
-    // sqrt(dx^2 + dy^2)
-    fixed_t sum_sq = fixed_mul(dx, dx) + fixed_mul(dy, dy);
-    return fixed_sqrt(sum_sq);
+    // FIX (critical): compute in integer space with a 64-bit accumulator.
+    // The old code squared Q16.16 values with fixed_mul(); any coordinate above
+    // ~181.0 overflowed the format, so distances came out as 0 or garbage.
+    int64_t dx = (int64_t)FIXED_TO_INT(a->x) - FIXED_TO_INT(b->x);
+    int64_t dy = (int64_t)FIXED_TO_INT(a->y) - FIXED_TO_INT(b->y);
+    uint64_t root = isqrt_u64((uint64_t)(dx * dx + dy * dy));
+    if(root > 32767) return FIXED_MAX;   // saturate to representable range
+    return INT_TO_FIXED((uint32_t)root);
 }
 
 // Calculate Manhattan distance
@@ -199,17 +215,26 @@ fixed_t clustering_distance_manhattan(const DataPoint_t* a, const DataPoint_t* b
 
 // Calculate cosine similarity (returns distance, not similarity)
 fixed_t clustering_distance_cosine(const DataPoint_t* a, const DataPoint_t* b) {
-    // Cosine similarity = (a·b) / (|a| * |b|)
-    fixed_t dot = fixed_mul(a->x, b->x) + fixed_mul(a->y, b->y);
-    fixed_t norm_a = fixed_sqrt(fixed_mul(a->x, a->x) + fixed_mul(a->y, a->y));
-    fixed_t norm_b = fixed_sqrt(fixed_mul(b->x, b->x) + fixed_mul(b->y, b->y));
-    
+    // FIX: compute in integer space with 64-bit accumulators. The old version
+    // squared Q16.16 coordinates with fixed_mul(), which overflowed the format
+    // for any coordinate above ~181.0 (same hazard as the Euclidean path).
+    int64_t ax = FIXED_TO_INT(a->x), ay = FIXED_TO_INT(a->y);
+    int64_t bx = FIXED_TO_INT(b->x), by = FIXED_TO_INT(b->y);
+
+    int64_t dot    = ax * bx + ay * by;
+    uint64_t norm_a = isqrt_u64((uint64_t)(ax * ax + ay * ay));
+    uint64_t norm_b = isqrt_u64((uint64_t)(bx * bx + by * by));
+
     if(norm_a == 0 || norm_b == 0) return FIXED_MAX;
-    
-    fixed_t similarity = fixed_div(dot, fixed_mul(norm_a, norm_b));
-    
-    // Convert to distance: distance = 1 - similarity
-    return FIXED_ONE - similarity;
+
+    // similarity in Q16.16 = dot / (|a|*|b|); clamp to [-1, 1].
+    int64_t similarity = (dot << FIXED_FRACTIONAL_BITS) /
+                         (int64_t)(norm_a * norm_b);
+    if(similarity >  FIXED_ONE) similarity =  FIXED_ONE;
+    if(similarity < -FIXED_ONE) similarity = -FIXED_ONE;
+
+    // Convert to distance: distance = 1 - similarity  (range [0, 2])
+    return FIXED_ONE - (fixed_t)similarity;
 }
 
 // Calculate silhouette score
@@ -269,9 +294,13 @@ void clustering_extract_features(const Frame_t* frame, DataPoint_t* features,
     *count = 0;
     
     if(frame->length == 0) return;
-    
-    // Feature 1: Frame duration
-    features[*count].x = INT_TO_FIXED(frame->duration_us);
+
+    // Feature 1: Frame duration. FIX: scale down (and clamp) before converting
+    // to Q16.16 — INT_TO_FIXED(duration_us) overflowed fixed_t for any duration
+    // over ~32 ms, and squared distances overflowed the format entirely.
+    uint32_t dur = frame->duration_us >> 8;      // ~0.26 ms units
+    if(dur > 16000) dur = 16000;
+    features[*count].x = INT_TO_FIXED(dur);
     // Feature 2: Frame length in bytes
     features[*count].y = INT_TO_FIXED(frame->length);
     features[*count].cluster_id = 0;
@@ -293,19 +322,19 @@ void clustering_extract_pulse_features(const Pulse_t* pulses, uint16_t pulse_cou
     
     if(pulse_count < 2) return;
     
-    // Create features from consecutive pulse pairs
+    // Create features from consecutive pulse pairs. FIX: scale widths by 1/4
+    // (µs -> quarter-µs units) so INT_TO_FIXED stays in range and squared
+    // distances don't overflow Q16.16.
     for(uint16_t i = 0; i < pulse_count - 1 && *count < MAX_PULSE_COUNT; i += 2) {
-        // Feature 1: Mark width
-        features[*count].x = INT_TO_FIXED(pulses[i].width_us);
-        // Feature 2: Space width
-        features[*count].y = INT_TO_FIXED(pulses[i + 1].width_us);
+        features[*count].x = INT_TO_FIXED(pulses[i].width_us >> 2);
+        features[*count].y = INT_TO_FIXED(pulses[i + 1].width_us >> 2);
         features[*count].cluster_id = 0;
         (*count)++;
     }
 }
 
 // Find optimal k using silhouette score
-uint8_t clustering_find_optimal_k(const Dataset_t* data, uint8_t k_min, uint8_t k_max) {
+uint8_t clustering_find_optimal_k(Dataset_t* data, uint8_t k_min, uint8_t k_max) {
     fixed_t best_score = FIXED_MIN;
     uint8_t best_k = k_min;
     
