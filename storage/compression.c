@@ -9,6 +9,10 @@ static RLEState_t rle_state;
 static DeltaState_t delta_state;
 static bool compression_initialized = false;
 
+// Static scratch for pulse (de)compression — honours the no-malloc design.
+// Only ever used from the single analysis thread, never concurrently.
+static uint16_t s_width_scratch[MAX_PULSE_COUNT];
+
 // Initialize compression engine
 void compression_init(void) {
     if(compression_initialized) return;
@@ -33,7 +37,6 @@ bool compress_data(const uint8_t* input, uint32_t input_len,
         return false;
     }
     
-    uint32_t start_time = 0;  // Would use timer_get_us()
     uint32_t compressed_size = 0;
     
     switch(algorithm) {
@@ -122,7 +125,10 @@ uint32_t delta_encode(const uint8_t* input, uint32_t len,
     for(uint32_t i = 1; i < len; i++) {
         int16_t delta = (int16_t)input[i] - last;
 
-        if(delta >= -128 && delta <= 127) {
+        // FIX: exclude -128 from the single-byte range — its encoding (0x80)
+        // collides with the escape marker and would be mis-decoded. -128 takes
+        // the escape path instead.
+        if(delta >= -127 && delta <= 127) {
             if(out_pos >= output_max) return 0;
             output[out_pos++] = (uint8_t)(delta & 0xFF);
         } else {
@@ -184,17 +190,24 @@ uint32_t delta_encode_16bit(const uint16_t* input, uint32_t len,
     for(uint32_t i = 1; i < len; i++) {
         int32_t delta = (int32_t)input[i] - last;
 
-        if(delta >= -128 && delta <= 127) {
+        // FIX: single escape byte 0x80 followed by a width marker (0x02 = int16,
+        // 0x04 = int32). The old scheme used 0x81 as a second escape, but 0x81 is
+        // also the encoding of a legitimate -127 single-byte delta — a collision
+        // that corrupted decode. -128 is likewise kept out of the single-byte
+        // range (its 0x80 encoding == the escape marker).
+        if(delta >= -127 && delta <= 127) {
             if(out_pos >= output_max) return 0;
             output[out_pos++] = (uint8_t)(delta & 0xFF);
         } else if(delta >= -32768 && delta <= 32767) {
-            if(out_pos + 2 >= output_max) return 0;
+            if(out_pos + 3 >= output_max) return 0;
             output[out_pos++] = 0x80;
+            output[out_pos++] = 0x02;
             output[out_pos++] = (uint8_t)(delta >> 8);
             output[out_pos++] = (uint8_t)(delta & 0xFF);
         } else {
-            if(out_pos + 4 >= output_max) return 0;
-            output[out_pos++] = 0x81;
+            if(out_pos + 5 >= output_max) return 0;
+            output[out_pos++] = 0x80;
+            output[out_pos++] = 0x04;
             output[out_pos++] = (uint8_t)(delta >> 24);
             output[out_pos++] = (uint8_t)(delta >> 16);
             output[out_pos++] = (uint8_t)(delta >> 8);
@@ -221,17 +234,22 @@ uint32_t delta_decode_16bit(const uint8_t* input, uint32_t len,
 
     while(in_pos < len) {
         uint8_t byte = input[in_pos++];
-        int32_t delta;
+        int32_t delta = 0;
 
-        if(byte == 0x80 && in_pos + 1 < len) {
-            delta = (int16_t)((input[in_pos] << 8) | input[in_pos + 1]);
-            in_pos += 2;
-        } else if(byte == 0x81 && in_pos + 3 < len) {
-            delta = (int32_t)((uint32_t)input[in_pos]   << 24 |
-                              (uint32_t)input[in_pos+1] << 16 |
-                              (uint32_t)input[in_pos+2] << 8  |
-                               input[in_pos+3]);
-            in_pos += 4;
+        if(byte == 0x80 && in_pos < len) {
+            uint8_t width = input[in_pos++];
+            if(width == 0x02 && in_pos + 1 < len) {
+                delta = (int16_t)((input[in_pos] << 8) | input[in_pos + 1]);
+                in_pos += 2;
+            } else if(width == 0x04 && in_pos + 3 < len) {
+                delta = (int32_t)((uint32_t)input[in_pos]   << 24 |
+                                  (uint32_t)input[in_pos+1] << 16 |
+                                  (uint32_t)input[in_pos+2] << 8  |
+                                   input[in_pos+3]);
+                in_pos += 4;
+            } else {
+                break;  // truncated / corrupt escape
+            }
         } else {
             delta = (int8_t)byte;
         }
@@ -590,30 +608,38 @@ uint32_t compress_pulse_sequence(const Pulse_t* pulses, uint16_t count,
                                   uint8_t* output, uint32_t max_output) {
     if(count == 0 || !output || max_output == 0) return 0;
     
+    if(count > MAX_PULSE_COUNT) count = MAX_PULSE_COUNT;
+
     uint32_t out_pos = 0;
-    
-    // Store count
+
+    // Header: [count:2][width_section_len:2]. The width-section length lets the
+    // decoder find exactly where the delta-encoded widths end and the level
+    // RLE begins (delta_decode cannot report bytes consumed on its own).
+    if(max_output < 4) return 0;
     output[out_pos++] = count >> 8;
     output[out_pos++] = count & 0xFF;
-    
-    // Delta encode pulse widths
-    uint16_t* widths = (uint16_t*)malloc(count * sizeof(uint16_t));
-    if(!widths) return 0;
-    
+    uint32_t width_len_pos = out_pos;   // patched after encoding widths
+    out_pos += 2;
+
+    // Delta encode pulse widths (static scratch — no dynamic allocation)
+    uint16_t* widths = s_width_scratch;
     for(uint16_t i = 0; i < count; i++) {
         widths[i] = pulses[i].width_us;
     }
-    
+
     uint32_t compressed = delta_encode_16bit(widths, count, &output[out_pos],
                                                   max_output - out_pos);
+    if(compressed == 0 && count > 0) return 0;  // width overflow
+    output[width_len_pos]     = (compressed >> 8) & 0xFF;
+    output[width_len_pos + 1] =  compressed       & 0xFF;
     out_pos += compressed;
-    
+
     // Store levels (RLE encoded)
     uint8_t current_level = pulses[0].level;
     uint8_t run_length = 1;
     
     for(uint16_t i = 1; i < count && out_pos < max_output; i++) {
-        if(pulses[i].level == current_level && run_length < 255) {
+        if(pulses[i].level == current_level && run_length < 127) {
             run_length++;
         } else {
             output[out_pos++] = (run_length << 1) | current_level;
@@ -621,40 +647,41 @@ uint32_t compress_pulse_sequence(const Pulse_t* pulses, uint16_t count,
             run_length = 1;
         }
     }
-    
+
     if(run_length > 0 && out_pos < max_output) {
         output[out_pos++] = (run_length << 1) | current_level;
     }
-    
-    free(widths);
+
     return out_pos;
 }
 
 // Decompress pulse sequence
 uint32_t decompress_pulse_sequence(const uint8_t* input, uint32_t len,
                                     Pulse_t* pulses, uint16_t max_pulses) {
-    if(len < 2) return 0;
-    
+    if(len < 4) return 0;
+
     uint32_t in_pos = 0;
     uint16_t count = (input[in_pos] << 8) | input[in_pos + 1];
     in_pos += 2;
-    
+    uint16_t width_len = (input[in_pos] << 8) | input[in_pos + 1];
+    in_pos += 2;
+
     if(count > max_pulses) count = max_pulses;
-    
-    // Decompress widths
-    uint16_t* widths = (uint16_t*)malloc(count * sizeof(uint16_t));
-    if(!widths) return 0;
-    
-    uint32_t decompressed = delta_decode_16bit(&input[in_pos], len - in_pos, widths, count);
-    in_pos += decompressed;
-    
+    if(count > MAX_PULSE_COUNT) count = MAX_PULSE_COUNT;
+    if(in_pos + width_len > len) return 0;  // corrupt / truncated
+
+    // Decompress widths (static scratch — no dynamic allocation)
+    uint16_t* widths = s_width_scratch;
+    delta_decode_16bit(&input[in_pos], width_len, widths, count);
+    in_pos += width_len;   // level RLE starts right after the width section
+
     // Decompress levels
     uint16_t pulse_idx = 0;
     while(pulse_idx < count && in_pos < len) {
         uint8_t packed = input[in_pos++];
         uint8_t run_length = packed >> 1;
         uint8_t level = packed & 1;
-        
+
         for(uint8_t i = 0; i < run_length && pulse_idx < count; i++) {
             pulses[pulse_idx].width_us = widths[pulse_idx];
             pulses[pulse_idx].level = level;
@@ -662,8 +689,7 @@ uint32_t decompress_pulse_sequence(const uint8_t* input, uint32_t len,
             pulse_idx++;
         }
     }
-    
-    free(widths);
+
     return pulse_idx;
 }
 
