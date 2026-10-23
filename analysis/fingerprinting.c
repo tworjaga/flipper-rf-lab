@@ -3,6 +3,7 @@
 #include "../core/math/statistics.h"
 #include "../storage/sd_manager.h"
 #include <string.h>
+#include <stdlib.h>
 
 #define TAG "FINGERPRINT"
 
@@ -70,7 +71,11 @@ bool fingerprinting_is_capturing(void) {
 
 // Process captured frame
 void fingerprinting_process_frame(const Frame_t* frame) {
-    if(capture_state.state != FINGERPRINT_STATE_SAMPLING) return;
+    // FIX: also accumulate while LEARNING — previously learning mode set the
+    // state to LEARNING but this early-return discarded every frame, so nothing
+    // was ever learned.
+    if(capture_state.state != FINGERPRINT_STATE_SAMPLING &&
+       capture_state.state != FINGERPRINT_STATE_LEARNING) return;
     
     uint32_t now = frame->timestamp_us;
     
@@ -109,7 +114,8 @@ void fingerprinting_process_frame(const Frame_t* frame) {
 
 // Process RSSI sample for slope analysis
 void fingerprinting_process_rssi_sample(uint8_t rssi, uint32_t timestamp_us) {
-    if(capture_state.state != FINGERPRINT_STATE_SAMPLING) return;
+    if(capture_state.state != FINGERPRINT_STATE_SAMPLING &&
+       capture_state.state != FINGERPRINT_STATE_LEARNING) return;
     
     if(capture_state.rssi_sample_count < MAX_SLOPE_SAMPLES) {
         capture_state.rssi_samples[capture_state.rssi_sample_count] = rssi;
@@ -179,7 +185,9 @@ void fingerprinting_analyze_clock_stability(void) {
     // Calculate PPM deviation
     // ppm = (std_dev / mean) * 1,000,000
     if(stats.mean > 0) {
-        uint32_t ppm = (stats.std_dev * 1000000) / stats.mean;
+        // FIX: 64-bit intermediate — std_dev * 1e6 overflows uint32 for
+        // std_dev > ~4294, which pinned ppm at the 255 clamp almost always.
+        uint32_t ppm = (uint32_t)(((uint64_t)stats.std_dev * 1000000ULL) / stats.mean);
         if(ppm > 255) ppm = 255;  // Clamp to uint8_t
         capture_state.current_fingerprint.clock_stability_ppm = (uint8_t)ppm;
     }
@@ -195,18 +203,21 @@ void fingerprinting_analyze_rssi_envelope(void) {
 
 // Generate complete fingerprint
 void fingerprinting_generate_fingerprint(RFFingerprint_t* fingerprint) {
-    // Run all analyses
+    // Run all analyses (these populate capture_state.current_fingerprint)
     fingerprinting_analyze_timing_drift();
     fingerprinting_analyze_rise_fall_slopes();
     fingerprinting_analyze_clock_stability();
     fingerprinting_analyze_rssi_envelope();
-    
-    // Calculate hash
-    fingerprint->unique_hash = fingerprinting_calculate_hash(fingerprint);
-    
-    // Copy to output
+
+    // FIX: hash the finished fingerprint, THEN emit. Previously the hash was
+    // written into the (empty) output struct and immediately overwritten by the
+    // memcpy, so unique_hash was always stale/zero.
+    capture_state.current_fingerprint.unique_hash =
+        fingerprinting_calculate_hash(&capture_state.current_fingerprint);
+
+    // Copy completed fingerprint to output
     memcpy(fingerprint, &capture_state.current_fingerprint, sizeof(RFFingerprint_t));
-    
+
     capture_state.state = FINGERPRINT_STATE_MATCHING;
 }
 
