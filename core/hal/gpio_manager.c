@@ -27,14 +27,16 @@ FuriStatus gpio_manager_init(void) {
     num_input_states = 0;
     num_gpio_groups = 0;
     
-    // Configure default pin states
-    // All pins as input with pull-down for safety
+    // Configure default pin states for the spare external pins only.
+    // FIX (critical): do NOT touch PA4 (CC1101 CS), PA6/PA7 (external SPI
+    //   MISO/MOSI) or PC3/PC1 (CC1101 GDO0/GDO2) here — the CC1101 driver and
+    //   furi_hal_spi own those. Driving them to pull-down inputs used to break
+    //   SPI the moment this ran.
     const GpioPin* default_pins[] = {
-        GPIO_PIN_2, GPIO_PIN_3, GPIO_PIN_4, GPIO_PIN_5,
-        GPIO_PIN_6, GPIO_PIN_7, GPIO_PIN_15, GPIO_PIN_16
+        GPIO_PIN_5, GPIO_PIN_6, GPIO_PIN_16   // PB3, PB2, PC0 — spare
     };
-    
-    for(uint8_t i = 0; i < 8; i++) {
+
+    for(uint8_t i = 0; i < 3; i++) {
         furi_hal_gpio_init(default_pins[i], GpioModeInput, GpioPullDown, GpioSpeedLow);
     }
     
@@ -47,13 +49,12 @@ FuriStatus gpio_manager_init(void) {
 void gpio_manager_deinit(void) {
     if(!gpio_initialized) return;
     
-    // Reset all pins to safe state
+    // Reset only the spare pins we configured (see gpio_manager_init).
     const GpioPin* all_pins[] = {
-        GPIO_PIN_2, GPIO_PIN_3, GPIO_PIN_4, GPIO_PIN_5,
-        GPIO_PIN_6, GPIO_PIN_7, GPIO_PIN_15, GPIO_PIN_16
+        GPIO_PIN_5, GPIO_PIN_6, GPIO_PIN_16
     };
-    
-    for(uint8_t i = 0; i < 8; i++) {
+
+    for(uint8_t i = 0; i < 3; i++) {
         furi_hal_gpio_init(all_pins[i], GpioModeInput, GpioPullDown, GpioSpeedLow);
     }
     
@@ -259,11 +260,13 @@ void gpio_set_low_power_mode(bool enable) {
 
 // Disable unused pins for power saving
 void gpio_disable_unused_pins(void) {
+    // FIX: only the genuinely spare pins. PC3/PC1 (PIN_7/PIN_15) are the CC1101
+    // GDO0/GDO2 lines and must not be forced to analog here.
     const GpioPin* unused_pins[] = {
-        GPIO_PIN_5, GPIO_PIN_6, GPIO_PIN_7, GPIO_PIN_15, GPIO_PIN_16
+        GPIO_PIN_5, GPIO_PIN_6, GPIO_PIN_16   // PB3, PB2, PC0
     };
-    
-    for(uint8_t i = 0; i < 5; i++) {
+
+    for(uint8_t i = 0; i < 3; i++) {
         // Configure as analog input (lowest power consumption)
         furi_hal_gpio_init(unused_pins[i], GpioModeAnalog, GpioPullNo, GpioSpeedLow);
     }
@@ -280,18 +283,19 @@ void gpio_print_configuration(void) {
 // Get pin state as bit mask
 uint32_t gpio_get_pin_state_mask(void) {
     uint32_t mask = 0;
-    
+
+    // FIX: report only the spare pins this manager owns; the CC1101/SPI/GDO pins
+    // (PA4/PA6/PA7/PC3/PC1) belong to the driver and furi_hal_spi.
     const GpioPin* pins[] = {
-        GPIO_PIN_2, GPIO_PIN_3, GPIO_PIN_4, GPIO_PIN_5,
-        GPIO_PIN_6, GPIO_PIN_7, GPIO_PIN_15, GPIO_PIN_16
+        GPIO_PIN_5, GPIO_PIN_6, GPIO_PIN_16   // PB3, PB2, PC0
     };
-    
-    for(uint8_t i = 0; i < 8; i++) {
+
+    for(uint8_t i = 0; i < 3; i++) {
         if(gpio_read(pins[i])) {
             mask |= (1 << i);
         }
     }
-    
+
     return mask;
 }
 
@@ -420,6 +424,7 @@ void gpio_group_init(GPIOGroup_t* group, const char* name) {
 }
 
 void gpio_group_add_pin(GPIOGroup_t* group, const GpioPin* pin) {
+    UNUSED(pin);
     if(group->count >= 8) return;  // Max 8 pins per group
     
     // Reallocate pin array (in real implementation, use static array)
