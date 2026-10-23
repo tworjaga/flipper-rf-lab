@@ -1,0 +1,20 @@
+# ---- Flipper / ufbt build output ----
+dist/
+.ufbt/
+*.fap
+*.elf
+
+# IDE / tooling (ufbt-generated)
+.vscode/compile_commands.json
+
+# ---- Host unit-test build artifacts ----
+tests/*.exe
+tests/*.obj
+tests/*.ilk
+tests/*.pdb
+tests/test_real
+
+# ---- OS / editor cruft ----
+Thumbs.db
+.DS_Store
+*~
