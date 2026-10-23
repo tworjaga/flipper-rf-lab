@@ -1,162 +1,177 @@
 # Flipper RF Lab
 
-[![Flipper Zero](https://img.shields.io/badge/Flipper-Zero-orange)](https://flipperzero.one)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-30%2F30%20Passing-brightgreen)](tests/test_algorithms.py)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/tworjaga/flipper-rf-lab)
-<img src="https://visitor-badge.laobi.icu/badge?page_id=tworjaga.flipper-rf-lab&"  />
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Platform: Flipper Zero](https://img.shields.io/badge/Platform-Flipper%20Zero-orange.svg)](https://flipperzero.one)
 
+An RF capture and analysis application for the Flipper Zero, built around an
+external CC1101 transceiver. It records sub-GHz signals and runs on-device
+analysis: device fingerprinting, protocol inference, clustering, entropy and
+threat scoring, with fixed-point math and static memory allocation throughout.
 
-> **Professional RF Analysis & Research Platform for Flipper Zero**
-> 
-> Transform your Flipper Zero into a laboratory-grade RF forensics instrument with 15 advanced analysis features.
+This is research-oriented firmware. The analysis engines are implemented and
+unit-tested; the on-device UI is currently a skeleton (see Status).
 
-![Flipper RF Lab](docs/images/flipper-rf-lab-banner.png)
+## Status
 
-## Features
+| Component | State |
+|-----------|-------|
+| RF fingerprinting (timing drift, slopes, clock stability) | Implemented |
+| Protocol inference (modulation/encoding/timing hypotheses) | Implemented |
+| Threat modelling (entropy, static/CRC/rolling-code, replay) | Implemented |
+| Clustering (k-means, silhouette) | Implemented |
+| Hierarchical clustering / DTW | Partial (stubs) |
+| Timing analysis (jitter, Allan variance) | Implemented |
+| Signal compression (delta, RLE, LZ77) | Implemented |
+| Huffman coding | Partial (encoder only) |
+| Telemetry / performance counters | Implemented |
+| Rolling long-term logging | Implemented |
+| Fixed-point math toolkit (Q15.16) | Implemented |
+| Spectrum sweep | Partial |
+| Replay-integrity verification | Planned |
+| On-device UI (per-mode screens) | Skeleton |
 
-| Feature | Description | Status |
-|---------|-------------|--------|
-| **RF Fingerprinting** | Device-level identification via timing drift, rise/fall slopes, clock instability | ✅ |
-| **Adaptive Signal Modeling** | Automatic protocol detection and hypothesis generation | ✅ |
-| **Cross-Session Correlation** | Compare signals across capture sessions | ✅ |
-| **Behavioral Profiling** | Long-term device behavior analysis | ✅ |
-| **Timing Stability Analysis** | Laboratory-grade oscillator characterization | ✅ |
-| **Advanced Clustering** | K-means and hierarchical signal grouping | ✅ |
-| **Threat Modeling** | Vulnerability scoring and risk assessment | ✅ |
-| **Real-Time Activity Map** | Continuous 300-928 MHz spectrum monitoring | ✅ |
-| **Signal Replay Integrity** | Verify fidelity of signal regeneration | ✅ |
-| **Modular Research Mode** | Deep analytical tools for protocol reverse engineering | ✅ |
-| **Internal Telemetry** | OS-level performance monitoring | ✅ |
-| **Deterministic Execution** | <1μs timing jitter for scientific validity | ✅ |
-| **Signal Compression** | 5:1+ compression for long-term logging | ✅ |
-| **Long-Term Logging** | Unattended background monitoring | ✅ |
-| **Embedded Math Toolkit** | Q15.16 fixed-point operations | ✅ |
+The main menu renders and the Back button exits cleanly. Per-mode screens,
+hierarchical clustering, DTW, the Huffman decoder, replay integrity and some
+export paths are stubbed or partial and are marked as such in the source.
 
-## Quick Start
+## Hardware
 
-### Prerequisites
-- [Flipper Zero](https://flipperzero.one/) device
-- [Flipper Zero Firmware SDK](https://github.com/flipperdevices/flipperzero-firmware)
+The application drives an external CC1101 module over the Flipper's external SPI
+bus; the built-in sub-GHz radio is not used. Wiring:
 
-### Installation
+| CC1101 | Flipper pin |
+|--------|-------------|
+| CS     | PA4 (pin 4) |
+| SCK    | PA5 (pin 5) |
+| MOSI   | PA7 (pin 2) |
+| MISO   | PA6 (pin 3) |
+| GDO0   | PC3 (pin 7) |
+| GDO2   | PC1 (pin 15) |
+
+With no module attached the application still launches; capture simply returns
+no data.
+
+## Building
+
+### With ufbt (recommended)
 
 ```bash
-# 1. Clone the Flipper Zero firmware
-git clone https://github.com/flipperdevices/flipperzero-firmware.git
-cd flipperzero-firmware
-
-# 2. Add this application to user apps
-git clone https://github.com/tworjaga/flipper-rf-lab.git applications_user/flipper-rf-lab
-
-# 3. Build the application
-./fbt fap_flipper_rf_lab
-
-# 4. Flash to your Flipper Zero
-./fbt fap_flipper_rf_lab flash
+pip install ufbt
+ufbt            # builds dist/flipper_rf_lab.fap
+ufbt launch     # build, install and run on a connected Flipper
 ```
 
-### Alternative: Direct Download
-Download the latest `.fap` file from [Releases](https://github.com/tworjaga/flipper-rf-lab/releases) and copy to your Flipper's SD card.
+### Inside the firmware tree
+
+```bash
+git clone https://github.com/flipperdevices/flipperzero-firmware.git
+cd flipperzero-firmware
+git clone https://github.com/tworjaga/flipper-rf-lab.git applications_user/flipper-rf-lab
+./fbt fap_flipper_rf_lab          # build
+./fbt fap_flipper_rf_lab flash    # build and flash
+```
+
+### Prebuilt
+
+Download the latest `.fap` from
+[Releases](https://github.com/tworjaga/flipper-rf-lab/releases) and copy it to
+`apps/RF/` on the Flipper's SD card.
 
 ## Usage
 
-### Main Menu
-- **Capture Mode**: Real-time RF signal capture with analysis
-- **Spectrum Scan**: 300-928 MHz continuous monitoring
-- **Device Database**: View identified device fingerprints
-- **Research Mode**: Advanced protocol reverse engineering tools
-- **Settings**: Configure RF parameters and logging options
+Main menu:
 
-### Capture & Analysis
-1. Select frequency band (315/433/868/915 MHz or custom)
-2. Choose modulation type or use auto-detection
-3. Start capture - signals are automatically analyzed
-4. View real-time results: fingerprint, threat score, protocol guess
+- Capture: real-time signal capture with analysis
+- Spectrum Scan: 300-928 MHz sweep
+- Fingerprint: device identification and database
+- Threat Model: vulnerability assessment
+- Research: protocol reverse-engineering tools
+- Settings: RF parameters and logging options
 
-### Research Mode
-- Raw timing dumps to CSV
-- Binary frame visualization
-- Pulse histogram analysis
-- Frame alignment tools
+Typical capture flow:
+
+1. Select a frequency band (315 / 433 / 868 / 915 MHz, or custom).
+2. Choose a modulation or use auto-detection.
+3. Start capture; frames are analysed as they arrive.
+4. Review results: fingerprint, threat score, protocol hypothesis.
 
 ## Architecture
 
 ```
 flipper-rf-lab/
-├── core/                    # Main application & HAL
-│   ├── flipper_rf_lab.h     # Core data structures
-│   ├── flipper_rf_lab_main.c # Entry point & FreeRTOS tasks
-│   ├── hal/                 # Hardware abstraction
-│   │   ├── cc1101_driver.c  # TI CC1101 RF transceiver
-│   │   ├── gpio_manager.c   # GPIO control
-│   │   └── timer_precision.c # DWT cycle counter (1μs)
-│   └── math/                # Fixed-point math library
-│       ├── fixed_point.c    # Q15.16 operations
-│       └── statistics.c     # Welford's online algorithm
-├── analysis/                # Signal analysis engines
-│   ├── fingerprinting.c     # RF device fingerprinting
-│   ├── clustering.c         # K-means & hierarchical
-│   ├── protocol_infer.c     # Protocol detection
-│   └── threat_model.c       # Vulnerability scoring
-├── storage/                 # Data persistence
-│   ├── sd_manager.c         # FAT32 file operations
-│   └── compression.c        # Delta, RLE, Huffman, LZ77
-├── ui/                      # User interface
-│   └── main_menu.c          # 128x64 LCD menu system
-└── research/                # Advanced tools
-    └── telemetry.c          # Performance monitoring
+├── core/
+│   ├── flipper_rf_lab.h        Core data structures and constants
+│   ├── flipper_rf_lab_main.c   Entry point, worker threads, runtime
+│   ├── circular_buffer.c       Lock-free ring buffer, static pool
+│   ├── hal/
+│   │   ├── cc1101_driver.c     CC1101 SPI driver
+│   │   ├── gpio_manager.c      GPIO configuration
+│   │   └── timer_precision.c   DWT cycle-counter timing
+│   └── math/
+│       ├── fixed_point.c       Q15.16 fixed-point operations
+│       └── statistics.c        Welford, histograms, regression
+├── analysis/
+│   ├── fingerprinting.c        RF device fingerprinting
+│   ├── clustering.c            K-means and distance metrics
+│   ├── protocol_infer.c        Protocol hypothesis generation
+│   └── threat_model.c          Entropy and vulnerability scoring
+├── storage/
+│   ├── sd_manager.c            SD sessions, logging, export
+│   └── compression.c           Delta, RLE, LZ77, Huffman
+├── ui/
+│   └── main_menu.c             128x64 menu
+├── research/
+│   └── telemetry.c             Performance monitoring
+└── tests/                      Host unit tests (see Testing)
 ```
 
-## Technical Specifications
+## Technical specifications
 
 | Parameter | Value |
 |-----------|-------|
-| **Platform** | Flipper Zero (STM32WB55RG) |
-| **CPU** | ARM Cortex-M4 @ 64 MHz |
-| **RAM Usage** | ~60 KB (static allocation only) |
-| **Timing Precision** | 0.1 μs (DWT cycle counter) |
-| **Frequency Range** | 300-928 MHz |
-| **Modulations** | 2-FSK, 4-FSK, GFSK, MSK, OOK, ASK |
-| **Compression** | 16.7:1 ratio (RLE) |
-| **Battery Life** | 8+ hours logging, 48+ hours standby |
+| Target | Flipper Zero (STM32WB55RG, Cortex-M4 @ 64 MHz) |
+| Static RAM | ~80 KB (.bss); no heap allocation at runtime |
+| Timing | DWT cycle counter, ~1 µs resolution |
+| Frequency range | 300-928 MHz (CC1101 dependent) |
+| Modulations | 2-FSK, 4-FSK, GFSK, MSK, OOK, ASK |
+| Compression | Delta / RLE / LZ77 (ratio is data-dependent) |
 
 ## Testing
 
-All core algorithms are verified with Python simulations:
+Two suites are provided.
+
+Real-source C tests link against the actual production code
+(`core/math/fixed_point.c`, `core/math/statistics.c`, `storage/compression.c`)
+through a small SDK shim, so they exercise the shipping implementation rather
+than a copy. They include regressions for specific fixed bugs (delta-codec
+escape-byte collisions, pulse-sequence framing, fixed-point overflow).
 
 ```bash
-cd tests
-python test_algorithms.py
+tests\run_host_tests.cmd        # MSVC, from the repo root
+
+# or with gcc:
+gcc -I tests/hostshim -I core -o test_real tests/test_real.c \
+    core/math/fixed_point.c core/math/statistics.c storage/compression.c
+./test_real
 ```
 
-**Results**: 30/30 tests passing (100%)
-- Fixed-point math (Q15.16)
-- Compression algorithms (Delta, RLE)
-- Statistical analysis (Welford's algorithm)
-- Clustering (K-means, Euclidean distance)
-- Threat modeling (Shannon entropy)
-- Protocol inference (OOK, FSK, ASK detection)
+A Python suite provides a quick, compiler-free behavioural check. Note that it
+exercises reference reimplementations of the algorithms, not the C sources; use
+the C tests above to validate shipping code.
+
+```bash
+python tests/test_algorithms.py
+```
 
 ## Contributing
 
-Contributions welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file.
+MIT. See [LICENSE](LICENSE).
 
 ## Acknowledgments
 
-- [Flipper Devices](https://flipperdevices.com/) for the amazing Flipper Zero
-- [Flipper Zero Firmware](https://github.com/flipperdevices/flipperzero-firmware) team
-- TI CC1101 datasheet and application notes
-
-## Contact
-
-**Author**: [@tworjaga](https://github.com/tworjaga)
-
-For bug reports and feature requests, please use [GitHub Issues](https://github.com/tworjaga/flipper-rf-lab/issues).
-
----
-
+- Flipper Devices and the Flipper Zero firmware team
+- Texas Instruments CC1101 datasheet and application notes
